@@ -1,19 +1,31 @@
+#importing required modules
 import tensorflow as tf
 import pathlib
 import numpy as np
 import os
 import matplotlib.pyplot as plt
+import seaborn as sns
+from nltk import flatten
 from google.colab import drive
+from sklearn.metrics import confusion_matrix
 from tensorflow.keras import layers, models, optimizers, losses, callbacks,\
                              regularizers
+#mounting the google drive files
 drive.mount('/content/drive')
-
+#unzipping the data
 !unzip -q '/content/drive/MyDrive/mlnn_assignment/Group_Project_Data 2.zip'
 
-def normalisation(image):
-  image = tf.image.resize(image, [32,32])
+#A function that accepts the image dataset, performs preprocessing tasks such as
+#image resizing, flipping, adjusting brightness and contrast.
+def processing(image):
+  image = tf.image.resize(image, [64, 64])
+  image = tf.image.random_flip_left_right(image)
+  image = tf.image.adjust_brightness(image, 0.2)
+  image = tf.image.adjust_contrast(image, 2.0)
+  image = tf.image.convert_image_dtype(image, 'float32')
   return image
   
+#Defining a function to reset the Kernel weights and bias
 def reinitialize(model):
     # Loop over the layers of the model
     for l in model.layers:
@@ -23,14 +35,30 @@ def reinitialize(model):
             l.kernel.assign(l.kernel_initializer(tf.shape(l.kernel)))
         if hasattr(l,"bias_initializer"):
             # Reset the bias
-            l.bias.assign(l.bias_initializer(tf.shape(l.bias)))  
+            l.bias.assign(l.bias_initializer(tf.shape(l.bias)))
   
   
-train = tf.keras.utils.image_dataset_from_directory('/content/Group_Project_Data/Train/', color_mode='grayscale')
-valid = tf.keras.utils.image_dataset_from_directory('/content/Group_Project_Data/Valid/',color_mode='grayscale')
+#Reading the images into a tensorflow dataset of batch size equal to 64.
+train = tf.keras.utils.image_dataset_from_directory('/content/Group_Project_Data/Train/', shuffle=True, batch_size=64)
+valid = tf.keras.utils.image_dataset_from_directory('/content/Group_Project_Data/Valid/', shuffle=True, batch_size=64)
+#Printing the class names
 class_names = train.class_names
 print(class_names)
 
+#Mapping the processing function into both the training and validation data.
+train = train.map(lambda x, y: (processing(x), y))
+valid = valid.map(lambda x, y: (processing(x), y))
+#Printing the images and label shape.
+for image, label in train.take(1):
+  print(image.shape)
+  print(label.shape)
+    
+    
+AUTOTUNE = tf.data.AUTOTUNE
+train = train.cache().prefetch(buffer_size=AUTOTUNE)
+valid = valid.cache().prefetch(buffer_size=AUTOTUNE)  
+
+#Plotting the first few images in the training set.
 plt.figure(figsize=(10, 10))
 for images, labels in train.take(1):
   for i in range(9):
@@ -38,37 +66,94 @@ for images, labels in train.take(1):
     plt.imshow(images[i].numpy().astype("uint8"))
     plt.title(class_names[labels[i]])
     plt.axis("off")
-    
-    
-train = train.map(lambda x, y: (normalisation(x), y))
-valid = valid.map(lambda x, y: (normalisation(x), y))
-for image, label in train.take(1):
-  print(image.shape)
-  print(label.shape)    
-    
-inp = layers.Input((32, 32, 1), dtype='float32', name='Input')
-conv_1 = layers.Conv2D(16, kernel_size=(3, 3), strides=(1, 1), padding='same', 
+#Constructing a neural network model convolutional and pooling layers.
+inp = layers.Input((64, 64, 3), dtype='float32', name='Input')
+conv_1 = layers.Conv2D(32, kernel_size=(3, 3), strides=(1, 1), padding='same', 
                        activation='relu', name='conv_1')(inp)
-conv_2 = layers.Conv2D(16, kernel_size=(3, 3), strides=(1, 1), padding='same', 
+conv_2 = layers.Conv2D(32, kernel_size=(3, 3), strides=(1, 1), padding='same', 
                        activation='relu', name='conv_2')(conv_1)
-pool_1 = layers.MaxPool2D(pool_size=(2, 2), name='pool_1')(conv_2)
-conv_3 = layers.Conv2D(32, kernel_size=(3, 3), strides=(1, 1), padding='same', 
+pool_1 = layers.MaxPool2D(pool_size=(2, 2), name='pool_1')(conv_2)   
+conv_3 = layers.Conv2D(64, kernel_size=(3, 3), strides=(1, 1), padding='same', 
                        activation='relu', name='conv_3')(pool_1)
-conv_4 = layers.Conv2D(32, kernel_size=(3, 3), strides=(1, 1), padding='same', 
-                       activation='relu', name='conv_4')(conv_3)                       
+conv_4 = layers.Conv2D(64, kernel_size=(3, 3), strides=(1, 1), padding='same', 
+                       activation='relu', name='conv_4')(conv_3)
 pool_2 = layers.MaxPool2D(pool_size=(2, 2), name='pool_2')(conv_4) 
-flat = layers.Flatten(name='flat')(pool_2)
-fc_1 = layers.Dense(256, activation='relu', name='fc_1')(flat)
+conv_5 = layers.Conv2D(128, kernel_size=(3, 3), strides=(1, 1), padding='same', 
+                       activation='relu', name='conv_5')(pool_2)
+conv_6 = layers.Conv2D(128, kernel_size=(3, 3), strides=(1, 1), padding='same', 
+                       activation='relu', name='conv_6')(conv_5)
+pool_3 = layers.MaxPool2D(pool_size=(2, 2), name='pool_3')(conv_6)
+conv_7 = layers.Conv2D(64, kernel_size=(3, 3), strides=(1, 1), padding='same', 
+                       activation='relu', name='conv_7')(pool_3)
+conv_8 = layers.Conv2D(64, kernel_size=(3, 3), strides=(1, 1), padding='same', 
+                       activation='relu', name='conv_8')(conv_7)  
+pool_4 = layers.MaxPool2D(pool_size=(2, 2), name='pool_4')(conv_8)                                            
+flat = layers.Flatten(name='flat')(pool_4)
+fc_1 = layers.Dense(512, activation='relu', name='fc_1')(flat)
 out = layers.Dense(1, activation='sigmoid', name='Output')(fc_1)
 galaxy_model = models.Model(inputs=inp, outputs=out)
 galaxy_model.summary()
+#Defining an early stop callback with a patience of 2
+Early_stop = callbacks.EarlyStopping(monitor='val_loss', patience=2)
+optimizers = ['SGD', 'adam', 'RMSprop']
+learning_rate = np.linspace(0.0001, 0.01, 4)
+hist = []
+#Compiling and training the model with different optimizers and a range of 
+#learning rates.
+for opt in optimizers:
+  for rate in learning_rate:
+      reinitialize(galaxy_model)
+      galaxy_model.compile(optimizer=opt, loss='BinaryCrossentropy',  
+                           metrics=['accuracy'])
+      galaxy_model.optimizer.learning_rate = rate
+      print("")
+      print(f"optimizer: {opt}    learning rate: {rate}")
+      print("")
+      #Training the model for 30 epochs.
+      history = galaxy_model.fit(train, validation_data = valid, epochs=30, 
+                                 callbacks=[Early_stop])
+      hist.append(history)
 
+#Plotting training and validation loss for different optimizers and learning 
+#rates
+count = 0
+for o in range(len(optimizers)):
+  f, ax = plt.subplots(1, 4, figsize=(18,4), dpi=144)
+  ax = ax.flatten()
+  for r in range(len(learning_rate)):
+      ax[r].plot(hist[count].history['loss'], label="training")
+      ax[r].plot(hist[count].history['val_loss'], label="validation")
+      ax[r].set_title(f"{optimizers[o]} {learning_rate[r].round(5)}")
+      ax[r].set_xlabel("epoch")
+      ax[r].legend()
+      count = count + 1
+  plt.show() 
+#Plotting the Training and validation accuracy for different optimizers and 
+#learning rates
+count = 0
+for o in range(len(optimizers)):
+  f, ax = plt.subplots(1, 4, figsize=(18,4), dpi=144)
+  ax = ax.flatten()
+  for r in range(len(learning_rate)):
+      ax[r].plot(hist[count].history['accuracy'], label="training")
+      ax[r].plot(hist[count].history['val_accuracy'], label="validation")
+      ax[r].set_title(f"{optimizers[o]} {learning_rate[r].round(5)}")
+      ax[r].set_xlabel("epoch")
+      ax[r].legend()
+      count = count + 1
+  
+  plt.show() 
+#Calling the reinitialize function to reset the weights and bias
 reinitialize(galaxy_model)
-Early_stop = callbacks.EarlyStopping(monitor='val_loss', patience=3)
-galaxy_model.compile(optimizer='SGD', loss='BinaryCrossentropy', metrics=['accuracy'])
+#Defining an early stop regularizer to avoid model overfitting
+Early_stop = callbacks.EarlyStopping(monitor='val_loss', patience=2)
+#Compiling the model with SGD optimizer and learning rate of 0.0001.
+galaxy_model.compile(optimizer='SGD', loss='BinaryCrossentropy',  metrics=['accuracy'])
 galaxy_model.optimizer.learning_rate = 0.0001
-history = galaxy_model.fit(train, validation_data = valid, epochs=50, callbacks=[Early_stop])
+#Traing the model for an epoch of 30.
+history = galaxy_model.fit(train, validation_data = valid, epochs=100, callbacks=[Early_stop])
 
+#Plotting the Training and validation loss 
 plt.figure(dpi=144, figsize=(5,3))
 plt.plot(history.history['loss'], label='training')
 plt.plot(history.history['val_loss'], label='validation')
@@ -76,6 +161,7 @@ plt.xlabel('Epochs')
 plt.ylabel('loss')
 plt.legend()
 plt.show()
+#Plotting the Training and validation accuracy
 plt.figure(dpi=144, figsize=(5,3))
 plt.plot(history.history['accuracy'], label='training')
 plt.plot(history.history['val_accuracy'], label='validation')
@@ -84,12 +170,43 @@ plt.ylabel('Accuracy')
 plt.legend()
 plt.show()
 
+#Predicting the labels of validation data
 y_pred = galaxy_model.predict(valid).round().astype('int').flatten()
+print(y_pred)
 
-plt.figure(figsize=(10,10))
+#creating an empty list true label
+truelabel = []
+#Getting the labels from the validation data and appending it to the Truelabel 
+#list
+for images, labels in valid:
+  truelabel.append(labels.numpy().flatten().tolist())
+  truelabel = flatten(truelabel)
+print(truelabel)
+
+#Plotting a confusion matrix to compare the number correct and wrong 
+#predictions made
+cm = confusion_matrix(truelabel, y_pred)
+plt.figure(dpi=144, figsize=(5,3))
+sns.heatmap(cm, annot=True)
+plt.xlabel("True value")
+plt.ylabel("Predicted value")
+plt.show()
+
+#Plotting the images from the validation dataset with its true and predicted 
+#label.
+plt.figure(figsize=(7,4))
 for image, label in valid.take(1):
-  for i in range(9):
-    ax = plt.subplot(3, 3, i + 1)
+  for i in range(8):
+    ax = plt.subplot(2, 4, i + 1)
     plt.imshow(image[i].numpy().astype("uint8"))
     plt.title(f"True: {class_names[label[i]]}\n Predicted: {class_names[y_pred[i]]}")
     plt.axis("off")
+#Saving the model
+galaxy_model.save('/content/drive/MyDrive/mlnn_assignment/galaxy_model')
+#loading the saved model
+loaded_galaxy_model = tf.keras.models.load_model('/content/drive/MyDrive/mlnn_assignment/galaxy_model')
+loaded_galaxy_model.summary()
+#zip the model
+!zip -r /content/galaxy_model.zip /content/drive/MyDrive/mlnn_assignment/galaxy_model
+
+    
