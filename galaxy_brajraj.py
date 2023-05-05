@@ -32,21 +32,35 @@ for image_batch, labels_batch in train:
 Input = layers.Input((256, 256, 3), dtype='float32', name='Input')
 conv_1 = layers.Conv2D(16, kernel_size=(3, 3), strides=(1, 1), activation='relu',
                        padding='same', name='conv_1')(Input)
+drop_1 = layers.Dropout(0.2)(conv_1)
 conv_2 = layers.Conv2D(16, kernel_size=(3, 3), strides=(1, 1), activation='relu',
-                       padding='same', name='conv_2')(conv_1)
+                       padding='same', name='conv_2',
+                       kernel_regularizer=regularizers.l2(0.0001))(drop_1)
 pool_1 = layers.MaxPool2D(pool_size=(2,2), name='pool_1')(conv_2)
 conv_3 = layers.Conv2D(32, kernel_size=(3, 3), strides=(1, 1), activation='relu',
                        padding='same', name='conv_3')(pool_1)
+drop_2 = layers.Dropout(0.2)(conv_3)
 conv_4 = layers.Conv2D(32, kernel_size=(3, 3), strides=(1, 1), activation='relu',
-                       padding='same', name='conv_4')(conv_3)
+                       padding='same', name='conv_4',
+                       kernel_regularizer=regularizers.l2(0.0001))(drop_2)
 pool_2 = layers.MaxPool2D(pool_size=(2,2), name='pool_2')(conv_4)
 conv_5 = layers.Conv2D(64, kernel_size=(3, 3), strides=(1, 1), activation='relu',
                        padding='same', name='conv_5')(pool_2)
+drop_3 = layers.Dropout(0.2)(conv_5)
 conv_6 = layers.Conv2D(64, kernel_size=(3, 3), strides=(1, 1), activation='relu',
-                       padding='same', name='conv_6')(conv_5)
+                       padding='same', name='conv_6',
+                       kernel_regularizer=regularizers.l2(0.0001))(drop_3)
 pool_3 = layers.MaxPool2D(pool_size=(2,2), name='pool_3')(conv_6)
-flat = layers.Flatten()(pool_3)
-fc_1 = layers.Dense(128, activation='relu', name='fc_1')(flat)
+
+conv_7 = layers.Conv2D(128, kernel_size=(3, 3), strides=(1, 1), activation='relu',
+                       padding='same', name='conv_7')(pool_3)
+drop_4 = layers.Dropout(0.2)(conv_7)
+conv_8 = layers.Conv2D(128, kernel_size=(3, 3), strides=(1, 1), activation='relu',
+                       padding='same', name='conv_8',
+                       kernel_regularizer=regularizers.l2(0.0001))(drop_4)
+pool_4 = layers.MaxPool2D(pool_size=(2,2), name='pool_4')(conv_8)
+flat = layers.Flatten()(pool_4)
+fc_1 = layers.Dense(256, activation='relu', name='fc_1')(flat)
 Output = layers.Dense(1, activation='sigmoid', name='Output')(fc_1)
 
 model = models.Model(inputs=Input, outputs=Output, name='model')
